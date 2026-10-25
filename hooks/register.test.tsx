@@ -43,25 +43,73 @@ test('the terminal spinner draws the score raster above the engine line', async 
   await ui.unmount()
 })
 
-test('desktop and vscode draw the score as an animated svg above the engine line', async ($, on) => {
+const BAND = {
+  plugin: 'balatro-flame',
+  component: 'AbovePrompt',
+  requestId: 'band',
+  surface: 'desktop',
+  props: { hasSurvey: false, isWorking: true, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 19 }, view: {} },
+} as const
+
+test('vscode draws the score as an animated svg above the engine line', async ($, on) => {
   let now = 1000
   on('clock.now', () => ({ value: (now += 50) }))
   on('clock.every', () => ({ value: undefined }))
   on('ui.invalidate', () => ({ value: undefined }))
-
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
 
     return <Text>engine</Text>
   })
 
-  for (const surface of ['desktop', 'vscode'] as const) {
-    const ui = await $.ui.mount({ ...SPINNER, surface })
+  const ui = await $.ui.mount({ ...SPINNER, surface: 'vscode' })
 
-    expect(await ui.find({ type: 'Raster' })).toBeFalsy()
-    const score = await ui.find({ type: 'Svg' })
-    expect(score).toBeTruthy()
-    expect((await ui.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine')
-    await ui.unmount()
-  }
+  expect(await ui.find({ type: 'Raster' })).toBeFalsy()
+  expect(await ui.find({ type: 'Svg' })).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine')
+  await ui.unmount()
+})
+
+test('desktop keeps the engine spinner and draws the score in the band, as a surface module, while a turn runs', async ($, on) => {
+  let now = 1000
+  on('clock.now', () => ({ value: (now += 50) }))
+  on('clock.every', () => ({ value: undefined }))
+  on('ui.invalidate', () => ({ value: undefined }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>engine</Text>
+  })
+
+  const spinner = await $.ui.mount({ ...SPINNER, surface: 'desktop' })
+  expect(await spinner.find({ type: 'Svg' })).toBeFalsy()
+  expect((await spinner.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine')
+  await spinner.unmount()
+
+  const band = await $.ui.mount(BAND)
+  expect(await band.find({ type: 'Svg' })).toBeFalsy()
+  expect(await band.find({ type: 'Client' })).toBeTruthy()
+
+  // The surface module paints the score's pixels as coloured boxes on its own clock.
+  await band.advance(200)
+  const drawn = JSON.stringify(await band.drawn({ in: 'score' }))
+  expect(drawn).toContain('#1e8cff')
+  expect(drawn).toContain('#f0433f')
+  await band.unmount()
+})
+
+test('the desktop band stays empty when no turn ran', async ($, on) => {
+  let now = 1000
+  on('clock.now', () => ({ value: (now += 50) }))
+  on('clock.every', () => ({ value: undefined }))
+  on('ui.invalidate', () => ({ value: undefined }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>engine</Text>
+  })
+
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: false } })
+  expect(await band.find({ type: 'Client' })).toBeFalsy()
+  await band.unmount()
 })
