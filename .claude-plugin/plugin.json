@@ -1,1 +1,9 @@
-{ "name": "balatro-flame", "version": "0.7.0", "description": "Draws a Balatro-style chips x mult score above the thinking spinner: tokens times tool calls, each number slamming in, with pixel flames that grow as the score climbs." }
+{
+  "name": "balatro-flame",
+  "version": "0.7.1",
+  "description": "Draws a Balatro-style chips x mult score above the thinking spinner: tokens times tool calls, each number slamming in, with pixel flames that grow as the score climbs.",
+  "author": { "name": "Sitray", "url": "https://github.com/Sitray" },
+  "homepage": "https://github.com/Sitray/balatro-flame",
+  "repository": "https://github.com/Sitray/balatro-flame",
+  "license": "MIT"
+}

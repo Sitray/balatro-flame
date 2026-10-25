@@ -1,5 +1,6 @@
 {
   "name": "balatro-flame",
   "owner": { "name": "Sitray" },
+  "description": "A Balatro-style chips x mult score with pixel flames for Claude Code's thinking spinner.",
   "plugins": [{ "name": "balatro-flame", "source": "./" }]
 }
