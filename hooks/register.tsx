@@ -1,11 +1,15 @@
 import type { Register } from 'claude-code'
 
-// Balatro's score box, drawn as one Raster: a blue "chips" box and a red "mult"
-// box with a pixel flame rising out of each as the number climbs, and each new
-// number slamming in oversized, tilted and jittering before it settles. Chips are
-// the output tokens of the turn; mult starts at 1 and gains 1 per tool call, each
-// landing as its own hit, like a card scoring. The engine's own spinner line
-// stays underneath, unchanged.
+// Balatro's score box: a blue "chips" box and a red "mult" box with a pixel flame
+// rising out of each as the number climbs, and each new number slamming in
+// oversized, tilted and jittering before it settles. Chips are the output tokens
+// of the turn; mult starts at 1 and gains 1 per tool call, each landing as its own
+// hit, like a card scoring. The engine's own spinner line stays underneath,
+// unchanged.
+//
+// The terminal draws it as one Raster repainted every frame. The other surfaces
+// have no Raster, so the same pixels become an animated SVG: a looping set of
+// flame frames, and the number's hit played once and held on its last frame.
 
 const BOX_W = 26
 const GAP = 5
@@ -18,6 +22,11 @@ const FRAME_MS = 50
 const HIT_MS = 380
 const POP_MS = 260
 const DEFAULT = 0x01000000
+const SVG_PX = 5
+const LOOP_FRAMES = 14
+const LOOP_STEP = 0.06
+const POP_STEP = 0.04
+const REDRAW_TICKS = 20
 
 type Rgb = [number, number, number]
 type Flame = { seed: number; ramp: Rgb[] }
@@ -214,6 +223,79 @@ const paint = (scene: Scene, now: number): string => {
   return (new Uint8Array(words.buffer) as Uint8Array & { toBase64: () => string }).toBase64()
 }
 
+const hex = (c: number) => '#' + c.toString(16).padStart(6, '0')
+
+// Pixels as SVG paths: one path per colour, each row's runs of it as one rectangle.
+// Colours are rounded to 16 steps a channel so a flame frame needs few paths.
+const toPaths = (px: Int32Array): string => {
+  const runs = new Map<number, string>()
+
+  for (let y = 0; y < H; y++) {
+    let x = 0
+    while (x < COLUMNS) {
+      const c = px[y * COLUMNS + x]!
+      if (c < 0) {
+        x += 1
+        continue
+      }
+
+      const key = c & 0xf0f0f0
+      let end = x + 1
+      while (end < COLUMNS && px[y * COLUMNS + end]! >= 0 && (px[y * COLUMNS + end]! & 0xf0f0f0) === key) {
+        end += 1
+      }
+
+      runs.set(key, (runs.get(key) ?? '') + `M${x} ${y}h${end - x}v1h-${end - x}z`)
+      x = end
+    }
+  }
+
+  return [...runs].map(([c, d]) => `<path fill="${hex(c | 0x080808)}" d="${d}"/>`).join('')
+}
+
+// The whole scene as an animated SVG document, starting from `now`.
+const svgScene = (scene: Scene, now: number): string => {
+  const redX = BOX_W + GAP
+  const midY = BOX_TOP + (H - 2 - BOX_TOP) / 2
+  const loopDur = LOOP_FRAMES * LOOP_STEP
+  const parts: string[] = []
+
+  // Flames: frames shown one after another, forever.
+  for (let k = 0; k < LOOP_FRAMES; k++) {
+    const px = new Int32Array(COLUMNS * H).fill(-1)
+    const t = now / 1000 + k * LOOP_STEP
+    paintFlame(px, 0, BLUE, scene.chipsHeat, t)
+    paintFlame(px, redX, RED, scene.multHeat, t + 7)
+    const values = Array.from({ length: LOOP_FRAMES }, (_, i) => (i === k ? 'visible' : 'hidden')).join(';')
+    parts.push(
+      `<g visibility="hidden"><animate attributeName="visibility" values="${values}" calcMode="discrete" dur="${loopDur}s" repeatCount="indefinite"/>${toPaths(px)}</g>`
+    )
+  }
+
+  const boxes = new Int32Array(COLUMNS * H).fill(-1)
+  paintBox(boxes, 0, BOX_BLUE, BOX_BLUE_DARK)
+  paintBox(boxes, redX, BOX_RED, BOX_RED_DARK)
+  paintText(boxes, '×', BOX_W + GAP / 2 + 1.5, midY, { text: '×', at: 0, kick: 0, seed: 0 }, now, BOX_RED)
+  parts.push(toPaths(boxes))
+
+  // Numbers: the hit in progress played once, its last frame (settled) kept.
+  const left = Math.max(scene.chips.at, scene.mult.at) + POP_MS - now
+  const popFrames = Math.max(0, Math.ceil(left / (POP_STEP * 1000)))
+  for (let k = 0; k <= popFrames; k++) {
+    const px = new Int32Array(COLUMNS * H).fill(-1)
+    const at = k === popFrames ? now + POP_MS * 2 : now + k * POP_STEP * 1000
+    paintText(px, scene.chips.text, BOX_W - 3, midY, scene.chips, at, DIGIT)
+    paintText(px, scene.mult.text, redX + BOX_W - 3, midY, scene.mult, at, DIGIT)
+    const timing = k === popFrames ? `begin="${k * POP_STEP}s" fill="freeze"` : `begin="${k * POP_STEP}s" dur="${POP_STEP}s"`
+    parts.push(`<g visibility="hidden"><set attributeName="visibility" to="visible" ${timing}/>${toPaths(px)}</g>`)
+  }
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${COLUMNS} ${H}" ` +
+    `width="${COLUMNS * SVG_PX}" height="${H * SVG_PX}" shape-rendering="crispEdges">${parts.join('')}</svg>`
+  )
+}
+
 export const register: Register = on => {
   let doneTokens = 0
   let stepChars = 0
@@ -224,6 +306,7 @@ export const register: Register = on => {
   let lastMultHit = 0
   let scene: Scene = fresh()
   let site: string | null = null
+  let isTerminal = true
   let stopFrames: (() => void) | null = null
 
   function fresh(): Scene {
@@ -247,12 +330,15 @@ export const register: Register = on => {
   })
 
   // The numbers land in hits, not a smooth count, at most one per box every HIT_MS.
-  const advance = (now: number) => {
+  // Says whether either number was hit.
+  const advance = (now: number): boolean => {
+    let isHit = false
     const nextChips = tokens()
     if (nextChips !== chips && now - lastChipsHit >= HIT_MS) {
       scene = { ...scene, chips: hit(chips, nextChips, now, now % 997) }
       chips = nextChips
       lastChipsHit = now
+      isHit = true
     }
 
     // Tool calls that land together still score one at a time.
@@ -260,6 +346,7 @@ export const register: Register = on => {
       mult += 1
       scene = { ...scene, mult: { ...hit(mult - 1, mult, now, (now % 991) + 0.5), kick: 0.9 } }
       lastMultHit = now
+      isHit = true
     }
 
     scene = {
@@ -267,6 +354,8 @@ export const register: Register = on => {
       chipsHeat: lerp(scene.chipsHeat, clamp((Math.log10(1 + chips) - 1.2) / 2), 0.15),
       multHeat: lerp(scene.multHeat, clamp(Math.log10(mult) / 1.2), 0.1)
     }
+
+    return isHit
   }
 
   on('turn.start', ($, e, next) => {
@@ -327,30 +416,60 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
-    if (e.surface !== 'terminal') {
-      return next(e)
-    }
-
     site = e.requestId
+    isTerminal = e.surface === 'terminal'
 
     if (stopFrames === null) {
+      let ticks = 0
       const timer = $.clock.every(FRAME_MS, async () => {
         const at = await $.clock.now()
-        advance(at)
+        const isHit = advance(at)
+        ticks += 1
 
-        if (site !== null) {
+        if (site === null) {
+          return
+        }
+
+        if (isTerminal) {
           await $.ui.blit({ requestId: site, key: 'score', cells: paint(scene, at) })
+        } else if (isHit || ticks % REDRAW_TICKS === 0) {
+          // An SVG animates itself; draw a new one for a hit, and now and then
+          // so the flames follow the score.
+          $.ui.invalidate('ui.render')
         }
       })
       stopFrames = () => timer.cancel()
     }
 
     const engine = await next(e)
-    const { Box, Raster } = $.ui.resolve(e)
+    const now = await $.clock.now()
+
+    if (e.surface === 'terminal') {
+      const { Box, Raster } = $.ui.resolve(e)
+
+      return (
+        <Box flexDirection="column">
+          <Raster key="score" columns={COLUMNS} rows={ROWS} cells={paint(scene, now)} />
+          {engine}
+        </Box>
+      )
+    }
+
+    if (e.surface === 'mobile') {
+      return engine
+    }
+
+    const { Box, Svg } = $.ui.resolve(e)
 
     return (
       <Box flexDirection="column">
-        <Raster key="score" columns={COLUMNS} rows={ROWS} cells={paint(scene, await $.clock.now())} />
+        <Svg
+          source={svgScene(scene, now)}
+          alt={`${scene.chips.text} tokens × ${scene.mult.text}`}
+          width={COLUMNS * SVG_PX}
+          height={H * SVG_PX}
+          isInteractive
+        />
         {engine}
       </Box>
     )

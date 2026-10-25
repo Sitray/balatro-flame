@@ -1,1 +1,1 @@
-{ "name": "balatro-flame", "version": "0.2.0", "description": "Draws a Balatro-style chips x mult score above the thinking spinner: tokens times tool calls, each number slamming in, with pixel flames that grow as the score climbs." }
+{ "name": "balatro-flame", "version": "0.3.0", "description": "Draws a Balatro-style chips x mult score above the thinking spinner: tokens times tool calls, each number slamming in, with pixel flames that grow as the score climbs." }

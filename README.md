@@ -12,7 +12,11 @@ chips box and a red mult box, each with a pixel flame rising out of its top.
   orders of magnitude.
 
 The engine's own spinner line (elapsed time and token count) stays underneath,
-unchanged. Terminal surface only; other surfaces keep the engine's spinner.
+unchanged.
+
+Works in the terminal and in the desktop app and VS Code from the same install:
+the terminal draws it as a Raster repainted every frame, the desktop app and
+VS Code as an animated SVG (looping flame frames, each hit played once).
 
 ## Install
 

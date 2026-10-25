@@ -43,16 +43,25 @@ test('the terminal spinner draws the score raster above the engine line', async 
   await ui.unmount()
 })
 
-test('other surfaces keep the engine spinner alone', async ($, on) => {
+test('desktop and vscode draw the score as an animated svg above the engine line', async ($, on) => {
+  let now = 1000
+  on('clock.now', () => ({ value: (now += 50) }))
+  on('clock.every', () => ({ value: undefined }))
+  on('ui.invalidate', () => ({ value: undefined }))
+
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
 
     return <Text>engine</Text>
   })
 
-  const ui = await $.ui.mount({ ...SPINNER, surface: 'desktop' })
+  for (const surface of ['desktop', 'vscode'] as const) {
+    const ui = await $.ui.mount({ ...SPINNER, surface })
 
-  expect(await ui.find({ type: 'Raster' })).toBeFalsy()
-  expect((await ui.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine')
-  await ui.unmount()
+    expect(await ui.find({ type: 'Raster' })).toBeFalsy()
+    const score = await ui.find({ type: 'Svg' })
+    expect(score).toBeTruthy()
+    expect((await ui.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine')
+    await ui.unmount()
+  }
 })
