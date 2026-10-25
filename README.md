@@ -3,6 +3,8 @@
 Draws a Balatro-style score while Claude works: a blue chips box and a red mult
 box, each with a pixel flame rising out of its top.
 
+![A real Claude Code session running the plugin's tests, the score above the spinner](media/terminal.gif)
+
 ![A turn scoring: tokens streaming into chips, each tool call raising the mult](media/turn.gif)
 
 - **Chips** are the output tokens of the turn: the real `output_tokens` of each
@@ -29,7 +31,9 @@ Works in the terminal, the desktop app and VS Code from the same install:
 - **VS Code:** an animated SVG above the spinner (looping flame frames, each hit
   played once).
 
-The GIFs come from the mod's own painter: `node media/render-gifs.mjs` (Node
+The first GIF is a recording of a real terminal session, made with
+`media/record-terminal.py` and [agg](https://github.com/asciinema/agg); the
+others come from the mod's own painter, and `node media/render-gifs.mjs` (Node
 23.6 or later) renders them again after a change.
 
 ## Install
