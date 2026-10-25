@@ -1,0 +1,5 @@
+{
+  "name": "balatro-flame",
+  "owner": { "name": "Sitray" },
+  "plugins": [{ "name": "balatro-flame", "source": "./" }]
+}
